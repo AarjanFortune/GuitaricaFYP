@@ -1,16 +1,77 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from espnet.nets.asr_interface import ASRInterface
-from espnet2.asr.encoder.transformer_encoder import TransformerEncoder
-from espnet2.asr.encoder.conformer_encoder import ConformerEncoder
-from espnet2.asr.decoder.transformer_decoder import TransformerDecoder
-from espnet.nets.pytorch_backend.transformer.mask import subsequent_mask
-from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
-from espnet.nets.pytorch_backend.nets_utils import make_pad_mask, mask_by_length
 from ignite.utils import convert_tensor
 import math
 import random
+
+
+def subsequent_mask(size):
+    mask = torch.triu(torch.ones(size, size), diagonal=1).bool()
+    return mask
+
+
+def make_non_pad_mask(lengths):
+    if isinstance(lengths, torch.Tensor):
+        lengths = lengths.long()
+    max_len = int(lengths.max().item())
+    seq_range = torch.arange(max_len, device=lengths.device)
+    seq_range_expand = seq_range.unsqueeze(0).expand(len(lengths), max_len)
+    return seq_range_expand < lengths.unsqueeze(1)
+
+
+def make_pad_mask(lengths):
+    return ~make_non_pad_mask(lengths)
+
+
+def mask_by_length(x, lengths):
+    if isinstance(lengths, torch.Tensor):
+        lengths = lengths.long()
+    mask = make_non_pad_mask(lengths).unsqueeze(-1)
+    return x * mask
+
+
+class CustomTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout=0.1):
+        super(CustomTransformerEncoderLayer, self).__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.activation = nn.ReLU()
+
+    def forward(self, src, src_key_padding_mask=None):
+        self_attn_output, attn_weights = self.self_attn(src, src, src, key_padding_mask=src_key_padding_mask, need_weights=True, average_attn_weights=False)
+        self.self_attn.attn = attn_weights
+        src2 = self.dropout(self_attn_output)
+        src = src + src2
+        src = self.norm1(src)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout(src2)
+        src = self.norm2(src)
+        return src
+
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, input_size, output_size, attention_heads, linear_units, num_blocks, positional_dropout_rate=0.1, attention_dropout_rate=0.0, input_layer='linear', positionwise_layer_type='conv1d', normalize_before=True):
+        super(TransformerEncoder, self).__init__()
+        self.input_layer = nn.Linear(input_size, output_size) if input_layer == 'linear' else nn.Identity()
+        self.encoders = nn.ModuleList([
+            CustomTransformerEncoderLayer(output_size, attention_heads, linear_units, dropout=attention_dropout_rate)
+            for _ in range(num_blocks)
+        ])
+        self.norm = nn.LayerNorm(output_size) if normalize_before else None
+
+    def forward(self, x, lengths):
+        x = self.input_layer(x)
+        src_key_padding_mask = make_pad_mask(lengths)
+        for layer in self.encoders:
+            x = layer(x, src_key_padding_mask=src_key_padding_mask)
+        if self.norm is not None:
+            x = self.norm(x)
+        return x, lengths, None
 
 
 class GuidedAttentionLoss(nn.Module):
@@ -218,7 +279,7 @@ class ConvStack(nn.Module):
         return y
 
 
-class TabEstimator(ASRInterface, torch.nn.Module):
+class TabEstimator(nn.Module):
     def __init__(self, mode, encoder_type, use_custom_decimation_func, use_conv_stack, n_bins, hop_length, sr, encoder_heads=1, encoder_layers=1, normalize_before=True):
         super(TabEstimator, self).__init__()
         self.mode = mode
@@ -235,7 +296,7 @@ class TabEstimator(ASRInterface, torch.nn.Module):
         if use_conv_stack:
             self.convstack = ConvStack(n_bins, self.conv_output_features, 1)
 
-        if encoder_type == "transformer":
+        if encoder_type == "transformer" or encoder_type == "conformer":
             self.encoder = TransformerEncoder(self.conv_output_features if use_conv_stack else n_bins,
                                               output_size=self.encoder_output_size,
                                               attention_heads=encoder_heads,
@@ -246,22 +307,6 @@ class TabEstimator(ASRInterface, torch.nn.Module):
                                               input_layer='linear',
                                               positionwise_layer_type='conv1d',
                                               normalize_before=normalize_before)
-        elif encoder_type == "conformer":
-            self.encoder = ConformerEncoder(self.conv_output_features if use_conv_stack else n_bins,
-                                            output_size=self.encoder_output_size,
-                                            attention_heads=encoder_heads,
-                                            linear_units=self.n_encoder_ffn,
-                                            num_blocks=encoder_layers,
-                                            attention_dropout_rate=self.encoder_attn_dropout,
-                                            input_layer='linear',
-                                            positionwise_layer_type='conv1d',
-                                            positionwise_conv_kernel_size=3,
-                                            normalize_before=normalize_before,
-                                            macaron_style=False,
-                                            rel_pos_type="latest",
-                                            pos_enc_layer_type="rel_pos",
-                                            selfattention_layer_type="rel_selfattn",
-                                            cnn_module_kernel=3)
 
         if mode == "F0":
             self.frame_F0_output_layer = nn.Sequential(
@@ -291,21 +336,16 @@ class TabEstimator(ASRInterface, torch.nn.Module):
             )
             self.softmax_by_string = nn.Softmax(dim=3)
 
-        self.note_encoder = ConformerEncoder(self.encoder_output_size,
-                                             output_size=self.encoder_output_size,
-                                             attention_heads=encoder_heads,
-                                             linear_units=self.n_encoder_ffn,
-                                             num_blocks=encoder_layers,
-                                             attention_dropout_rate=self.encoder_attn_dropout,
-                                             input_layer='linear',
-                                             positionwise_layer_type='conv1d',
-                                             positionwise_conv_kernel_size=3,
-                                             normalize_before=normalize_before,
-                                             macaron_style=False,
-                                             rel_pos_type="latest",
-                                             pos_enc_layer_type="rel_pos",
-                                             selfattention_layer_type="rel_selfattn",
-                                             cnn_module_kernel=3)
+        self.note_encoder = TransformerEncoder(self.encoder_output_size,
+                                                output_size=self.encoder_output_size,
+                                                attention_heads=encoder_heads,
+                                                linear_units=self.n_encoder_ffn,
+                                                num_blocks=encoder_layers,
+                                                positional_dropout_rate=self.encoder_pos_dropout,
+                                                attention_dropout_rate=self.encoder_attn_dropout,
+                                                input_layer='linear',
+                                                positionwise_layer_type='conv1d',
+                                                normalize_before=normalize_before)
 
     def forward(self, src_pad, src_len, note_len, bpm):
         batch_size = src_pad.shape[0]

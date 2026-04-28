@@ -41,8 +41,8 @@ def process_cqt(data, sr_original, **kwargs):
 
     data = data.astype(float)
     data = librosa.util.normalize(data)
-    data = librosa.resample(data, sr_original, down_sampling_rate)
-    data = np.abs(librosa.cqt(data,
+    data = librosa.resample(data, orig_sr=sr_original, target_sr=down_sampling_rate)
+    data = np.abs(librosa.cqt(y=data,
                               hop_length=hop_length,
                               sr=down_sampling_rate,
                               n_bins=n_bins,
@@ -55,11 +55,11 @@ def process_mel_spec(data, sr_original, **kwargs):
     hop_length = kwargs["hop_length"]
     data = data.astype(float)
     data = librosa.util.normalize(data)
-    data = librosa.resample(data, sr_original, down_sampling_rate)
-    data = np.abs(librosa.feature.melspectrogram(data,
-                                                 sr=down_sampling_rate,
-                                                 n_fft=2048,
-                                                 hop_length=hop_length))
+    data = librosa.resample(data, orig_sr=sr_original, target_sr=down_sampling_rate)
+    data = np.abs(librosa.feature.melspectrogram(y=data,
+                                                     sr=down_sampling_rate,
+                                                     n_fft=2048,
+                                                     hop_length=hop_length))
     return data
 
 

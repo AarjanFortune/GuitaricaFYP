@@ -202,9 +202,9 @@ def train(mode, input_feature_type, encoder_type, use_custom_decimation_func, us
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, 32, gamma=0.5, verbose=False)
 
-    model.cuda()
-    criterion.cuda()
-    device = "cuda"
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    criterion.to(device)
 
     train_dataset = CustomDataset(train_data_list, mode, input_feature_type)
     valid_dataset = CustomDataset(valid_data_list, mode, input_feature_type)
