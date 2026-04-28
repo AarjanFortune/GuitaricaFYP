@@ -79,13 +79,14 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
     elif input_feature_type == "melspec":
         n_bins = 128
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = TabEstimator(mode, encoder_type, use_custom_decimation_func, use_conv_stack, n_bins, hop_length, down_sampling_rate, encoder_heads=encoder_heads,
                               encoder_layers=encoder_layers)
-    model.load_state_dict(torch.load(
-        model_path, map_location=torch.device("cpu")))
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
     model.eval()
     if verbose:
-        print(f"{test_num=}, {mode=}")
+        print(f"{test_num=}, {mode=}, device={device}")
     frame_sum_precision, frame_sum_recall, frame_sum_f1 = 0, 0, 0
     note_sum_precision, note_sum_recall, note_sum_f1 = 0, 0, 0
     if mode == "tab":
@@ -135,6 +136,11 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
 
         if input_as_random_noize == True:
             input_features = torch.rand(input_features.shape)
+
+        input_features = input_features.to(device)
+        bpm = bpm.to(device)
+        frame_len = frame_len.to(device)
+        note_len = note_len.to(device)
 
         # prediction
         with torch.no_grad():
