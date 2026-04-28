@@ -202,7 +202,10 @@ def train(mode, input_feature_type, encoder_type, use_custom_decimation_func, us
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, 32, gamma=0.5, verbose=False)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(device)
     model.to(device)
     criterion.to(device)
 
