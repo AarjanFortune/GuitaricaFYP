@@ -4,7 +4,7 @@ bins_per_octave: 24
 cqt_n_bins: 192
 hop_length: 512
 generated_midi_n_bars: 4
-n_cores: 4
+n_cores: 0
 
 train_ratio: 0.9
 epoch: 192
