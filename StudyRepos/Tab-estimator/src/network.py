@@ -41,10 +41,11 @@ class CustomTransformerEncoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.activation = nn.ReLU()
+        self.attn_weights = None
 
     def forward(self, src, src_key_padding_mask=None):
         self_attn_output, attn_weights = self.self_attn(src, src, src, key_padding_mask=src_key_padding_mask, need_weights=True, average_attn_weights=False)
-        self.self_attn.attn = attn_weights
+        self.attn_weights = attn_weights
         src2 = self.dropout(self_attn_output)
         src = src + src2
         src = self.norm1(src)
