@@ -6,11 +6,6 @@ import math
 import random
 
 
-def subsequent_mask(size):
-    mask = torch.triu(torch.ones(size, size), diagonal=1).bool()
-    return mask
-
-
 def make_non_pad_mask(lengths):
     if isinstance(lengths, torch.Tensor):
         lengths = lengths.long()
