@@ -27,7 +27,7 @@ def make_pad_mask(lengths):
 def mask_by_length(x, lengths):
     if isinstance(lengths, torch.Tensor):
         lengths = lengths.long()
-    mask = make_non_pad_mask(lengths).unsqueeze(-1)
+    mask = make_non_pad_mask(lengths).unsqueeze(-1).unsqueeze(-1)
     return x * mask
 
 
