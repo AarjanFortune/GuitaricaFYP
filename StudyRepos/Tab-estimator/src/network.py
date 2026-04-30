@@ -22,7 +22,7 @@ def make_pad_mask(lengths):
 def mask_by_length(x, lengths):
     if isinstance(lengths, torch.Tensor):
         lengths = lengths.long()
-    mask = make_non_pad_mask(lengths).unsqueeze(-1)
+    mask = make_non_pad_mask(lengths).unsqueeze(-1).unsqueeze(-1)
     return x * mask
 
 
@@ -366,8 +366,10 @@ class TabEstimator(nn.Module):
                 decimated_memory = torch.zeros(
                     batch_size, self.encoder_output_size, 64).to(memory.device)
                 for n_batch in range(batch_size):
+                    # Ensure olens[n_batch] is an integer
+                    olens_n_batch = int(olens[n_batch])
                     decimated_memory[n_batch] = torch.squeeze(F.interpolate(
-                        torch.unsqueeze(memory_cpy[n_batch, :, :olens[n_batch]], 0), size=64), 0)
+                        torch.unsqueeze(memory_cpy[n_batch, :, :olens_n_batch], 0), size=64), 0)
                 decimated_memory = torch.swapaxes(decimated_memory, 1, 2)
 
         if self.mode == "F0":

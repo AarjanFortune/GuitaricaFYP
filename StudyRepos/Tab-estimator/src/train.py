@@ -296,6 +296,10 @@ def train(mode, input_feature_type, encoder_type, use_custom_decimation_func, us
         writer.add_scalar("train/loss", trainer.state.output,
                           trainer.state.iteration)
         loss_container.update_itr()
+        
+    @trainer.on(Events.ITERATION_COMPLETED(every=10))
+    def log_training_iter(trainer):
+        print(f"Epoch[{trainer.state.epoch}] Iter[{trainer.state.iteration % len(train_loader)}/{len(train_loader)}] Loss: {trainer.state.output:.4f}")
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_training_results(trainer):
@@ -343,24 +347,26 @@ def main(mode, input_feature_type, encoder_type, use_custom_decimation_func, use
 
     shutil.copyfile("src/config.yaml", model_dir + "/config.yaml")
 
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if torch.cuda.is_available():
-        device = 'cuda'
-        for test_num in range(6):
-            dev_data_list = [datapath for datapath in data_list if not(
-                os.path.split(datapath)[1].startswith(f"0{test_num}_"))]
-            random.shuffle(dev_data_list)
-            train_data_list = dev_data_list[:int(
-                round(len(dev_data_list) * train_ratio))]
-            valid_data_list = dev_data_list[int(
-                round(len(dev_data_list) * train_ratio)):]
-            tensorboard_dir = os.path.join(
-                "tensorboard", "{0:%Y%m%d%H%M}".format(now), f"testNo0{test_num}")
-            model_dir = os.path.join(
-                "model", "{0:%Y%m%d%H%M}".format(now), f"testNo0{test_num}")
-            train(mode, input_feature_type, encoder_type, use_custom_decimation_func, use_conv_stack, use_galoss, test_num, train_data_list, valid_data_list, tensorboard_dir, model_dir,
-                  epoch, lr, d_model, encoder_heads, encoder_layers, n_cores, device, n_bins, hop_length, sr)
+        print('CUDA is available. Training will use GPU.')
     else:
-        raise EnvironmentError("CUDA is not avaible")
+        print('CUDA is not available. Training will run on CPU.')
+
+    for test_num in range(6):
+        dev_data_list = [datapath for datapath in data_list if not(
+            os.path.split(datapath)[1].startswith(f"0{test_num}_"))]
+        random.shuffle(dev_data_list)
+        train_data_list = dev_data_list[:int(
+            round(len(dev_data_list) * train_ratio))]
+        valid_data_list = dev_data_list[int(
+            round(len(dev_data_list) * train_ratio)):]
+        tensorboard_dir = os.path.join(
+            "tensorboard", "{0:%Y%m%d%H%M}".format(now), f"testNo0{test_num}")
+        model_dir = os.path.join(
+            "model", "{0:%Y%m%d%H%M}".format(now), f"testNo0{test_num}")
+        train(mode, input_feature_type, encoder_type, use_custom_decimation_func, use_conv_stack, use_galoss, test_num, train_data_list, valid_data_list, tensorboard_dir, model_dir,
+              epoch, lr, d_model, encoder_heads, encoder_layers, n_cores, device, n_bins, hop_length, sr)
 
     return
 

@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 import glob
 import numpy as np
 import os
@@ -69,7 +72,7 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
         "hop_length": hop_length,
         "bins_per_octave": bins_per_octave
     }
-    model_path = f"model/{trained_model}/testNo0{test_num}/epoch{use_model_epoch}.model"
+    model_path = f"model/{trained_model}/testNo00/epoch{use_model_epoch}.model"
     existing_dev_files = glob.glob(f"visualize/dev/attn_map/0{test_num}/*")
     for f in existing_dev_files:
         os.remove(f)
@@ -79,13 +82,14 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
     elif input_feature_type == "melspec":
         n_bins = 128
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = TabEstimator(mode, encoder_type, use_custom_decimation_func, use_conv_stack, n_bins, hop_length, down_sampling_rate, encoder_heads=encoder_heads,
                               encoder_layers=encoder_layers)
-    model.load_state_dict(torch.load(
-        model_path, map_location=torch.device("cpu")))
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
     model.eval()
     if verbose:
-        print(f"{test_num=}, {mode=}")
+        print(f"{test_num=}, {mode=}, device={device}")
     frame_sum_precision, frame_sum_recall, frame_sum_f1 = 0, 0, 0
     note_sum_precision, note_sum_recall, note_sum_f1 = 0, 0, 0
     if mode == "tab":
@@ -126,15 +130,24 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
         bpm = torch.unsqueeze(bpm, 0)
 
         frame_len = np.arange(1)
-        note_len = np.arange(1)
+        # Initialize note_len properly
+        note_len = np.array([note_gt.shape[0]])
         frame_len[0] = input_features.shape[1]
         note_len[0] = note_gt.shape[0]
+
+        # Convert note_len to a PyTorch tensor
+        note_len = torch.tensor(note_len)
 
         frame_len = torch.zeros(1)
         frame_len[0] = input_features.shape[1]
 
         if input_as_random_noize == True:
             input_features = torch.rand(input_features.shape)
+
+        input_features = input_features.to(device)
+        bpm = bpm.to(device)
+        frame_len = frame_len.to(device)
+        note_len = note_len.to(device)
 
         # prediction
         with torch.no_grad():
@@ -151,7 +164,7 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
 
         # (batch, len, ...) -> (len, ...) & probability -> one-hot
         input_features = torch.squeeze(
-            input_features, 0).detach().numpy().copy()
+            input_features, 0).cpu().detach().numpy().copy()
         if mode == "F0":
             frame_pred = torch.squeeze(frame_pred, 0)
             note_pred = torch.squeeze(note_pred, 0)
@@ -165,6 +178,9 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
         elif mode == "tab":
 
             frame_pred = torch.squeeze(frame_pred, 0)
+            # Move frame_pred to CPU before NumPy conversion
+            if isinstance(frame_pred, torch.Tensor):
+                frame_pred = frame_pred.cpu()
             argmax_index = np.argmax(frame_pred.detach().numpy(), axis=2)
             frame_pred = np.zeros((len(frame_pred), 6, 21))
             for frame in range(len(frame_pred)):
@@ -173,6 +189,9 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
             frame_F0_from_tab_pred = tab2pitch(frame_pred)
 
             note_pred = torch.squeeze(note_pred, 0)
+            # Move note_pred to CPU before NumPy conversion
+            if isinstance(note_pred, torch.Tensor):
+                note_pred = note_pred.cpu()
             argmax_index = np.argmax(note_pred.detach().numpy(), axis=2)
             note_pred = np.zeros((len(note_pred), 6, 21))
             for note in range(len(note_pred)):
@@ -203,6 +222,22 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
                 npz_save_dir, os.path.split(npz_filename)[1])
             if not(os.path.exists(npz_save_dir)):
                 os.makedirs(npz_save_dir)
+            # Move tensors to CPU before saving
+            if isinstance(frame_pred, torch.Tensor):
+                frame_pred = frame_pred.cpu()
+            if isinstance(note_pred, torch.Tensor):
+                note_pred = note_pred.cpu()
+            if isinstance(frame_gt, torch.Tensor):
+                frame_gt = frame_gt.cpu()
+            if isinstance(note_gt, torch.Tensor):
+                note_gt = note_gt.cpu()
+            if isinstance(frame_F0_from_tab_pred, torch.Tensor):
+                frame_F0_from_tab_pred = frame_F0_from_tab_pred.cpu()
+            if isinstance(note_F0_from_tab_pred, torch.Tensor):
+                note_F0_from_tab_pred = note_F0_from_tab_pred.cpu()
+            # Move attn_map to CPU if it is a tensor
+            if isinstance(attn_map, torch.Tensor):
+                attn_map = attn_map.cpu()
             np.savez_compressed(npz_save_filename,
                                 input_features=input_features,
                                 frame_F0_pred=frame_pred,
@@ -217,6 +252,22 @@ def calc_score(test_num, trained_model, use_model_epoch, config_path, plot_resul
                 npz_save_dir, os.path.split(npz_filename)[1])
             if not(os.path.exists(npz_save_dir)):
                 os.makedirs(npz_save_dir)
+            # Move tensors to CPU before saving
+            if isinstance(frame_pred, torch.Tensor):
+                frame_pred = frame_pred.cpu()
+            if isinstance(note_pred, torch.Tensor):
+                note_pred = note_pred.cpu()
+            if isinstance(frame_gt, torch.Tensor):
+                frame_gt = frame_gt.cpu()
+            if isinstance(note_gt, torch.Tensor):
+                note_gt = note_gt.cpu()
+            if isinstance(frame_F0_from_tab_pred, torch.Tensor):
+                frame_F0_from_tab_pred = frame_F0_from_tab_pred.cpu()
+            if isinstance(note_F0_from_tab_pred, torch.Tensor):
+                note_F0_from_tab_pred = note_F0_from_tab_pred.cpu()
+            # Move attn_map to CPU if it is a tensor
+            if isinstance(attn_map, torch.Tensor):
+                attn_map = attn_map.cpu()
             np.savez_compressed(npz_save_filename,
                                 input_features=input_features,
                                 frame_tab_pred=frame_pred,
@@ -371,9 +422,9 @@ def main():
                             f"_epoch{use_model_epoch}", "metrics.csv")
     for test_num in range(6):
         print(f"Player No. {test_num}")
-        result = result.append(calc_score(test_num, trained_model, use_model_epoch, config_path, plot_results=plot_results,
+        result = result._append(calc_score(test_num, trained_model, use_model_epoch, config_path, plot_results=plot_results,
                                           input_as_random_noize=input_as_random_noize, make_notelvl_from_framelvl=make_notelvl_from_framelvl, verbose=verbose))
-    result = result.append(result.describe()[1:3])
+    result = result._append(result.describe()[1:3])
     result.to_csv(csv_path, float_format="%.3f")
     return
 
