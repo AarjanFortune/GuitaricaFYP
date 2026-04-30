@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 import numpy as np
 import librosa
 import librosa.display
@@ -116,7 +119,7 @@ def visualize(npz_filename_list, kwargs):
         if input_feature_type == "cqt":
             plt.title(f"Input Constant-Q Transform")
             cqt = input_features.T
-            librosa.display.specshow(librosa.amplitude_to_db(np.abs(cqt)),
+            spec = librosa.display.specshow(librosa.amplitude_to_db(np.abs(cqt)),
                                      x_axis='time',
                                      y_axis='cqt_hz',
                                      sr=down_sampling_rate,
@@ -126,13 +129,13 @@ def visualize(npz_filename_list, kwargs):
         elif input_feature_type == "melspec":
             plt.title(f"Input Mel-spectrogram")
             melspec = input_features.T
-            librosa.display.specshow(librosa.amplitude_to_db(np.abs(melspec)),
+            spec = librosa.display.specshow(librosa.amplitude_to_db(np.abs(melspec)),
                                      x_axis='time',
                                      y_axis='hz',
                                      sr=down_sampling_rate,
                                      hop_length=hop_length,
                                      cmap='coolwarm')
-        plt.colorbar(format='%+2.0f dB')
+        plt.colorbar(spec, format='%+2.0f dB')
         plt.xlabel('Tims [s]')
         subplot_counter = subplot_counter + 1
 
@@ -166,7 +169,7 @@ def visualize(npz_filename_list, kwargs):
                     plt.axvline(n_note, color='white', lw=1)
                 else:
                     plt.axvline(n_note, color='white', lw=0.2)
-            plt.xticks([i for i in range(0, n_note) if i % note_resolution == 0],
+            plt.xticks([i for i in range(0, n_note+1) if i % note_resolution == 0],
                        labels=[i for i in range(0, n_note//note_resolution+1)])
             plt.yticks([8, 20, 32], ['C3', 'C4', 'C5'])
             plt.xlabel('Bar number')
@@ -213,7 +216,7 @@ def visualize(npz_filename_list, kwargs):
                     plt.axvline(n_note, color='white', lw=1)
                 else:
                     plt.axvline(n_note, color='white', lw=0.2)
-            plt.xticks([i for i in range(0, n_note) if i % note_resolution == 0],
+            plt.xticks([i for i in range(0, n_note+1) if i % note_resolution == 0],
                        labels=[i for i in range(0, n_note//note_resolution+1)])
             plt.yticks([8, 20, 32], ['C3', 'C4', 'C5'])
             plt.xlabel('Bar number')
@@ -302,11 +305,15 @@ def main():
         if not(os.path.exists(visualize_dir)):
             os.makedirs(visualize_dir)
             
-        # paralell process
-        p = Pool(n_cores)
-        p.starmap(visualize, zip(npz_filename_list, repeat(kwargs)))
-        p.close()  # or p.terminate()
-        p.join()
+        if n_cores > 0:
+            # parallel process
+            p = Pool(n_cores)
+            p.starmap(visualize, zip(npz_filename_list, repeat(kwargs)))
+            p.close()  # or p.terminate()
+            p.join()
+        else:
+            for f in npz_filename_list:
+                visualize(f, kwargs)
 
 
 if __name__ == "__main__":
